@@ -30,7 +30,7 @@ type IPPoolManager interface {
 	InjectSubnetManager(subnetManager subnetmanagertypes.SubnetManager)
 	GetIPPoolByName(ctx context.Context, poolName string) (*spiderpoolv1.SpiderIPPool, error)
 	ListIPPools(ctx context.Context, opts ...client.ListOption) (*spiderpoolv1.SpiderIPPoolList, error)
-	AllocateIP(ctx context.Context, poolName, containerID, nic string, pod *corev1.Pod) (*models.IPConfig, *spiderpoolv1.SpiderIPPool, error)
+	AllocateIP(ctx context.Context, poolName, containerID, nic string, pod *corev1.Pod, podTopController types.PodTopController) (*models.IPConfig, *spiderpoolv1.SpiderIPPool, error)
 	ReleaseIP(ctx context.Context, poolName string, ipAndCIDs []types.IPAndCID) error
 	CheckVlanSame(ctx context.Context, poolNameList []string) (map[types.Vlan][]string, bool, error)
 	RemoveFinalizer(ctx context.Context, pool *spiderpoolv1.SpiderIPPool) error

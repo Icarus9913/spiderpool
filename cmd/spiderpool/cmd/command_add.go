@@ -4,24 +4,26 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"net"
-	"os"
-	"path/filepath"
-	"runtime/debug"
-
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/go-openapi/strfmt"
-	"go.uber.org/zap"
-
+	"github.com/gofrs/flock"
 	"github.com/spidernet-io/spiderpool/api/v1/agent/client/connectivity"
 	"github.com/spidernet-io/spiderpool/api/v1/agent/client/daemonset"
 	"github.com/spidernet-io/spiderpool/api/v1/agent/models"
 	"github.com/spidernet-io/spiderpool/cmd/spiderpool-agent/cmd"
 	"github.com/spidernet-io/spiderpool/pkg/constant"
 	spiderpoolip "github.com/spidernet-io/spiderpool/pkg/ip"
+	"go.uber.org/zap"
+	"math/rand"
+	"net"
+	"os"
+	"path/filepath"
+	"runtime/debug"
+	"time"
 )
 
 var BinNamePlugin = filepath.Base(os.Args[0])
@@ -86,6 +88,22 @@ func CmdAdd(args *skel.CmdArgs) (err error) {
 		zap.String("IfName", args.IfName))
 	logger.Info("Generate IPAM configuration")
 
+	rand.Seed(time.Now().UnixNano())
+	var duration time.Duration
+	prefix := rand.Intn(4)
+	data := rand.Intn(15)
+	if prefix <= 1 {
+		duration = (100 - time.Duration(data)) * time.Second
+	} else {
+		duration = (100 + time.Duration(data)) * time.Second
+	}
+
+	ctx, cancelFunc := context.WithTimeout(context.Background(), duration)
+	defer cancelFunc()
+
+	unlock := acquireIPAMLockBestEffort(logger)
+	defer unlock()
+
 	// new unix client
 	spiderpoolAgentAPI, err := cmd.NewAgentOpenAPIUnixClient(conf.IPAM.IpamUnixSocketPath)
 	if nil != err {
@@ -98,7 +116,7 @@ func CmdAdd(args *skel.CmdArgs) (err error) {
 	_, err = spiderpoolAgentAPI.Connectivity.GetIpamHealthy(connectivity.NewGetIpamHealthyParams())
 	if nil != err {
 		logger.Error(err.Error())
-		return ErrAgentHealthCheck
+		return err
 	}
 	logger.Debug("Spider agent health check successfully.")
 
@@ -115,17 +133,18 @@ func CmdAdd(args *skel.CmdArgs) (err error) {
 		CleanGateway:      conf.IPAM.CleanGateway,
 	}
 
-	params := daemonset.NewPostIpamIPParams()
+	params := daemonset.NewPostIpamIPParamsWithContext(ctx)
 	params.SetIpamAddArgs(ipamAddArgs)
 	ipamResponse, err := spiderpoolAgentAPI.Daemonset.PostIpamIP(params)
 	if nil != err {
 		logger.Error(err.Error())
-		return fmt.Errorf("%w: %v", ErrPostIPAM, err)
+		return err
 	}
 	// validate spiderpool-agent response
 	if err = ipamResponse.Payload.Validate(strfmt.Default); nil != err {
 		logger.Error(err.Error())
 		return err
+
 	}
 
 	// assemble result with ipam response.
@@ -136,7 +155,6 @@ func CmdAdd(args *skel.CmdArgs) (err error) {
 	}
 
 	logger.Sugar().Infof("IPAM assigned successfully: %v", *result)
-
 	return types.PrintResult(result, conf.CNIVersion)
 }
 
@@ -213,4 +231,36 @@ func assembleResult(cniVersion, IfName string, ipamResponse *daemonset.PostIpamI
 	result.Interfaces = netInterfaces
 
 	return result, nil
+}
+
+var spiderpoolLockPath = "/var/run/spidernet/spiderpool.lock"
+
+type unlockFn func()
+
+// acquireIPAMLockBestEffort attempts to acquire the IPAM file lock, blocking if needed.  If an error occurs
+// (for example permissions or missing directory) then it returns immediately.  Returns a function that unlocks the
+// lock again (or a no-op function if acquiring the lock failed).
+func acquireIPAMLockBestEffort(logger *zap.Logger) unlockFn {
+	logger.Info("About to acquire host-wide IPAM lock.")
+	path := spiderpoolLockPath
+	err := os.MkdirAll(filepath.Dir(path), 0777)
+	if err != nil {
+		logger.Sugar().Errorf("Failed to make directory for IPAM lock: %v", err)
+		// Fall through, still a slight chance the file is there for us to access.
+	}
+	ipamLock := flock.New(path)
+	err = ipamLock.Lock()
+	if err != nil {
+		logger.Sugar().Errorf("Failed to grab IPAM lock, may contend for datastore updates: %v", err)
+		return func() {}
+	}
+	logger.Info("Acquired host-wide IPAM lock.")
+	return func() {
+		err := ipamLock.Unlock()
+		if err != nil {
+			logger.Sugar().Errorf("Failed to release IPAM lock; ignoring because process is about to exit: %v", err)
+		} else {
+			logger.Info("Released host-wide IPAM lock.")
+		}
+	}
 }

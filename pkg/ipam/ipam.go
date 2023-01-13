@@ -98,6 +98,7 @@ func (i *ipam) Allocate(ctx context.Context, addArgs *models.IpamAddArgs) (*mode
 	logger := logutils.FromContext(ctx)
 	logger.Info("Start to allocate")
 
+	logger.Warn("================1111111111111111111111111=====================")
 	pod, err := i.podManager.GetPodByName(ctx, *addArgs.PodNamespace, *addArgs.PodName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Pod %s/%s: %v", *addArgs.PodNamespace, *addArgs.PodName, err)
@@ -135,10 +136,13 @@ func (i *ipam) Allocate(ctx context.Context, addArgs *models.IpamAddArgs) (*mode
 		}
 	}
 
+	logger.Warn("================22222222222222222222222222222222=====================")
 	addResp, err := i.allocateInStandardMode(ctx, addArgs, pod, endpoint, podTopController)
 	if err != nil {
 		return nil, fmt.Errorf("failed to allocate IP addresses in standard mode: %w", err)
 	}
+
+	logger.Warn("================ENDENDENDENDENDENDENDENDENDENDENDENDEND=====================")
 
 	return addResp, nil
 }
@@ -219,6 +223,7 @@ func (i *ipam) allocateInStandardMode(ctx context.Context, addArgs *models.IpamA
 	logger := logutils.FromContext(ctx)
 	logger.Info("Allocate IP addresses in standard mode")
 
+	logger.Warn("========================POOLPOOLPOOLPOOLPOOLPOOLPOOLPOOL==================")
 	toBeAllocatedSet, err := i.genToBeAllocatedSet(ctx, *addArgs.IfName, addArgs.DefaultIPV4IPPool, addArgs.DefaultIPV6IPPool, addArgs.CleanGateway, pod, podController)
 	if err != nil {
 		return nil, err
@@ -226,7 +231,7 @@ func (i *ipam) allocateInStandardMode(ctx context.Context, addArgs *models.IpamA
 
 	// TODO(iiiceoo): Comment why containerID should be written first.
 	if endpoint == nil {
-		endpoint, err = i.weManager.MarkIPAllocation(ctx, *addArgs.ContainerID, pod)
+		endpoint, err = i.weManager.MarkIPAllocation(ctx, *addArgs.ContainerID, pod, podController)
 		if err != nil {
 			return nil, fmt.Errorf("failed to mark IP allocation: %v", err)
 		}
@@ -236,7 +241,10 @@ func (i *ipam) allocateInStandardMode(ctx context.Context, addArgs *models.IpamA
 		}
 	}
 
-	results, err := i.allocateForAllNICs(ctx, toBeAllocatedSet, *addArgs.ContainerID, endpoint, pod)
+	logger.Warn("========================ALLOCATEALLOCATEALLOCATEALLOCATEALLOCATEALLOCATE==================")
+	results, err := i.allocateForAllNICs(ctx, toBeAllocatedSet, *addArgs.ContainerID, endpoint, pod, podController)
+	logger.Warn("========================SUCCESSFULLYSUCCESSFULLYSUCCESSFULLYSUCCESSFULLYSUCCESSFULLYSUCCESSFULLY==================")
+
 	resIPs, resRoutes := convertResultsToIPConfigsAndAllRoutes(results)
 	if err != nil {
 		// If there are any other errors that might have been thrown at Allocate
@@ -249,9 +257,10 @@ func (i *ipam) allocateInStandardMode(ctx context.Context, addArgs *models.IpamA
 			}
 		}
 
-		if err := i.weManager.ClearCurrentIPAllocation(ctx, *addArgs.ContainerID, endpoint); err != nil {
-			logger.Sugar().Warnf("Failed to clear the current IP allocation: %v", err)
-		}
+		// TODO: 3
+		/*		if err := i.weManager.ClearCurrentIPAllocation(ctx, *addArgs.ContainerID, endpoint); err != nil {
+				logger.Sugar().Warnf("Failed to clear the current IP allocation: %v", err)
+			}*/
 
 		return nil, err
 	}
@@ -291,7 +300,7 @@ func (i *ipam) genToBeAllocatedSet(ctx context.Context, nic string, defaultIPV4I
 	return preliminary, nil
 }
 
-func (i *ipam) allocateForAllNICs(ctx context.Context, tt []*ToBeAllocated, containerID string, endpoint *spiderpoolv1.SpiderEndpoint, pod *corev1.Pod) ([]*AllocationResult, error) {
+func (i *ipam) allocateForAllNICs(ctx context.Context, tt []*ToBeAllocated, containerID string, endpoint *spiderpoolv1.SpiderEndpoint, pod *corev1.Pod, podTopController types.PodTopController) ([]*AllocationResult, error) {
 	logger := logutils.FromContext(ctx)
 
 	customRoutes, err := getCustomRoutes(ctx, pod)
@@ -299,9 +308,10 @@ func (i *ipam) allocateForAllNICs(ctx context.Context, tt []*ToBeAllocated, cont
 		return nil, err
 	}
 
-	var allResults []*AllocationResult
+	//var allResults []*AllocationResult
+	allResults := make([]*AllocationResult, 0, len(tt))
 	for _, t := range tt {
-		oneResults, err := i.allocateForOneNIC(ctx, t, containerID, &customRoutes, endpoint, pod)
+		oneResults, err := i.allocateForOneNIC(ctx, t, containerID, &customRoutes, endpoint, pod, podTopController)
 		if len(oneResults) != 0 {
 			allResults = append(allResults, oneResults...)
 		}
@@ -319,17 +329,17 @@ func (i *ipam) allocateForAllNICs(ctx context.Context, tt []*ToBeAllocated, cont
 		return allResults, fmt.Errorf("failed to generate IP assignment annotation: %v", err)
 	}
 
-	if err := i.podManager.MergeAnnotations(ctx, pod.Namespace, pod.Name, anno); err != nil {
+	if err := i.podManager.MergeAnnotations(ctx, pod, anno); err != nil {
 		return allResults, fmt.Errorf("failed to merge IP assignment annotation: %w", err)
 	}
 
 	return allResults, nil
 }
 
-func (i *ipam) allocateForOneNIC(ctx context.Context, t *ToBeAllocated, containerID string, customRoutes *[]*models.Route, endpoint *spiderpoolv1.SpiderEndpoint, pod *corev1.Pod) ([]*AllocationResult, error) {
+func (i *ipam) allocateForOneNIC(ctx context.Context, t *ToBeAllocated, containerID string, customRoutes *[]*models.Route, endpoint *spiderpoolv1.SpiderEndpoint, pod *corev1.Pod, podTopController types.PodTopController) ([]*AllocationResult, error) {
 	var results []*AllocationResult
 	for _, c := range t.PoolCandidates {
-		result, err := i.allocateIPFromPoolCandidates(ctx, c, t.NIC, containerID, t.CleanGateway, pod)
+		result, err := i.allocateIPFromPoolCandidates(ctx, c, t.NIC, containerID, t.CleanGateway, pod, podTopController)
 		if err != nil {
 			return results, err
 		}
@@ -353,7 +363,7 @@ func (i *ipam) allocateForOneNIC(ctx context.Context, t *ToBeAllocated, containe
 	return results, nil
 }
 
-func (i *ipam) allocateIPFromPoolCandidates(ctx context.Context, c *PoolCandidate, nic, containerID string, cleanGateway bool, pod *corev1.Pod) (*AllocationResult, error) {
+func (i *ipam) allocateIPFromPoolCandidates(ctx context.Context, c *PoolCandidate, nic, containerID string, cleanGateway bool, pod *corev1.Pod, podTopController types.PodTopController) (*AllocationResult, error) {
 	logger := logutils.FromContext(ctx)
 
 	// TODO(iiiceoo): Comment why queue up before allocating IP.
@@ -367,7 +377,7 @@ func (i *ipam) allocateIPFromPoolCandidates(ctx context.Context, c *PoolCandidat
 	var errs []error
 	var result *AllocationResult
 	for _, pool := range c.Pools {
-		ip, ipPool, err := i.ipPoolManager.AllocateIP(ctx, pool, containerID, nic, pod)
+		ip, ipPool, err := i.ipPoolManager.AllocateIP(ctx, pool, containerID, nic, pod, podTopController)
 		if err != nil {
 			errs = append(errs, err)
 			logger.Sugar().Warnf("Failed to allocate IPv%d IP to %s from IPPool %s: %v", c.IPVersion, nic, pool, err)
@@ -824,18 +834,19 @@ func (i *ipam) getPoolFromNS(ctx context.Context, namespace, nic string, cleanGa
 }
 
 func (i *ipam) filterPoolCandidates(ctx context.Context, tt []*ToBeAllocated, pod *corev1.Pod) error {
-	logger := logutils.FromContext(ctx)
+	//logger := logutils.FromContext(ctx)
 
 	for _, t := range tt {
 		for _, c := range t.PoolCandidates {
 			var errs []error
 			var selectedPools []string
 			for _, pool := range c.Pools {
-				if err := i.selectByPod(ctx, c.IPVersion, pool, pod); err != nil {
-					errs = append(errs, err)
-					logger.Sugar().Warnf("IPPool %s is filtered by Pod %s/%s: %v", pool, pod.Namespace, pod.Name, err)
-					continue
-				}
+				// TODO: 第一个
+				/*				if err := i.selectByPod(ctx, c.IPVersion, pool, pod); err != nil {
+								errs = append(errs, err)
+								logger.Sugar().Warnf("IPPool %s is filtered by Pod %s/%s: %v", pool, pod.Namespace, pod.Name, err)
+								continue
+							}*/
 				selectedPools = append(selectedPools, pool)
 			}
 
@@ -913,13 +924,14 @@ func (i *ipam) verifyPoolCandidates(ctx context.Context, tt []*ToBeAllocated) er
 		for _, c := range t.PoolCandidates {
 			allPools = append(allPools, c.Pools...)
 		}
-		vlanToPools, same, err := i.ipPoolManager.CheckVlanSame(ctx, allPools)
-		if err != nil {
-			return err
-		}
-		if !same {
-			return fmt.Errorf("%w, vlans in each IPPools are not same: %v", constant.ErrWrongInput, vlanToPools)
-		}
+		// TODO: 2
+		/*		vlanToPools, same, err := i.ipPoolManager.CheckVlanSame(ctx, allPools)
+				if err != nil {
+					return err
+				}
+				if !same {
+					return fmt.Errorf("%w, vlans in each IPPools are not same: %v", constant.ErrWrongInput, vlanToPools)
+				}*/
 	}
 
 	return nil

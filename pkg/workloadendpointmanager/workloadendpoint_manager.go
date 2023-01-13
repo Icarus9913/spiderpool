@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/spidernet-io/spiderpool/pkg/types"
 	"math/rand"
 	"time"
 
@@ -28,7 +29,7 @@ type WorkloadEndpointManager interface {
 	ListEndpoints(ctx context.Context, opts ...client.ListOption) (*spiderpoolv1.SpiderEndpointList, error)
 	DeleteEndpoint(ctx context.Context, endpoint *spiderpoolv1.SpiderEndpoint) error
 	RemoveFinalizer(ctx context.Context, namespace, podName string) error
-	MarkIPAllocation(ctx context.Context, containerID string, pod *corev1.Pod) (*spiderpoolv1.SpiderEndpoint, error)
+	MarkIPAllocation(ctx context.Context, containerID string, pod *corev1.Pod, podTopController types.PodTopController) (*spiderpoolv1.SpiderEndpoint, error)
 	ReMarkIPAllocation(ctx context.Context, containerID string, pod *corev1.Pod, endpoint *spiderpoolv1.SpiderEndpoint) error
 	PatchIPAllocation(ctx context.Context, allocation *spiderpoolv1.PodIPAllocation, endpoint *spiderpoolv1.SpiderEndpoint) error
 	ClearCurrentIPAllocation(ctx context.Context, containerID string, endpoint *spiderpoolv1.SpiderEndpoint) error
@@ -110,7 +111,7 @@ func (em *workloadEndpointManager) RemoveFinalizer(ctx context.Context, namespac
 	return nil
 }
 
-func (em *workloadEndpointManager) MarkIPAllocation(ctx context.Context, containerID string, pod *corev1.Pod) (*spiderpoolv1.SpiderEndpoint, error) {
+func (em *workloadEndpointManager) MarkIPAllocation(ctx context.Context, containerID string, pod *corev1.Pod, podTopController types.PodTopController) (*spiderpoolv1.SpiderEndpoint, error) {
 	if pod == nil {
 		return nil, fmt.Errorf("pod %w", constant.ErrMissingRequiredParam)
 	}
@@ -120,11 +121,6 @@ func (em *workloadEndpointManager) MarkIPAllocation(ctx context.Context, contain
 			Name:      pod.Name,
 			Namespace: pod.Namespace,
 		},
-	}
-
-	podTopController, err := em.podManager.GetPodTopController(ctx, pod)
-	if err != nil {
-		return nil, err
 	}
 
 	// Do not set ownerReference for Endpoint when its corresponding Pod is

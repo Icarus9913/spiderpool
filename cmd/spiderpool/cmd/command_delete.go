@@ -19,6 +19,7 @@ import (
 
 // CmdDel follows CNI SPEC cmdDel.
 func CmdDel(args *skel.CmdArgs) (err error) {
+	return nil
 	var logger *zap.Logger
 
 	// Defer a panic recover, so that in case we panic we can still return
@@ -58,7 +59,7 @@ func CmdDel(args *skel.CmdArgs) (err error) {
 	k8sArgs := K8sArgs{}
 	if err = types.LoadArgs(args.Args, &k8sArgs); nil != err {
 		logger.Error(err.Error(), zap.String("Action", "Del"), zap.String("ContainerID", args.ContainerID))
-		return err
+		return nil
 	}
 	logger.Sugar().Debugf("CNI DEL Args: %#v", k8sArgs)
 
@@ -71,11 +72,14 @@ func CmdDel(args *skel.CmdArgs) (err error) {
 		zap.String("IfName", args.IfName))
 	logger.Info("Generate IPAM configuration")
 
+	unlock := acquireIPAMLockBestEffort(logger)
+	defer unlock()
+
 	// new unix client
 	spiderpoolAgentAPI, err := cmd.NewAgentOpenAPIUnixClient(conf.IPAM.IpamUnixSocketPath)
 	if nil != err {
 		logger.Error(err.Error())
-		return err
+		return nil
 	}
 
 	// GET /ipam/healthy
@@ -83,7 +87,7 @@ func CmdDel(args *skel.CmdArgs) (err error) {
 	_, err = spiderpoolAgentAPI.Connectivity.GetIpamHealthy(connectivity.NewGetIpamHealthyParams())
 	if nil != err {
 		logger.Error(err.Error())
-		return ErrAgentHealthCheck
+		return nil
 	}
 	logger.Debug("Spider agent health check successfully.")
 
@@ -102,7 +106,7 @@ func CmdDel(args *skel.CmdArgs) (err error) {
 	_, err = spiderpoolAgentAPI.Daemonset.DeleteIpamIP(params)
 	if nil != err {
 		logger.Error(err.Error())
-		return fmt.Errorf("%w: %v", ErrDeleteIPAM, err)
+		return nil
 	}
 
 	logger.Info("IP release successfully.")

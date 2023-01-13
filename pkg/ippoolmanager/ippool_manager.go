@@ -110,7 +110,7 @@ func (im *ipPoolManager) ListIPPools(ctx context.Context, opts ...client.ListOpt
 	return &ipPoolList, nil
 }
 
-func (im *ipPoolManager) AllocateIP(ctx context.Context, poolName, containerID, nic string, pod *corev1.Pod) (*models.IPConfig, *spiderpoolv1.SpiderIPPool, error) {
+func (im *ipPoolManager) AllocateIP(ctx context.Context, poolName, containerID, nic string, pod *corev1.Pod, podTopController types.PodTopController) (*models.IPConfig, *spiderpoolv1.SpiderIPPool, error) {
 	var ipConfig *models.IPConfig
 	var usedIPPool *spiderpoolv1.SpiderIPPool
 	rand.Seed(time.Now().UnixNano())
@@ -129,10 +129,6 @@ func (im *ipPoolManager) AllocateIP(ctx context.Context, poolName, containerID, 
 			ipPool.Status.AllocatedIPs = spiderpoolv1.PoolIPAllocations{}
 		}
 
-		podTopController, err := im.podManager.GetPodTopController(ctx, pod)
-		if err != nil {
-			return nil, nil, err
-		}
 		allocation := spiderpoolv1.PoolIPAllocation{
 			ContainerID:         containerID,
 			NIC:                 nic,
@@ -167,7 +163,9 @@ func (im *ipPoolManager) AllocateIP(ctx context.Context, poolName, containerID, 
 			if i == im.config.MaxConflictRetries {
 				return nil, nil, fmt.Errorf("%w, failed for %d times, failed to allocate IP from IPPool %s", constant.ErrRetriesExhausted, im.config.MaxConflictRetries, poolName)
 			}
-			time.Sleep(time.Duration(rand.Intn(1<<(i+1))) * im.config.ConflictRetryUnitTime)
+
+			delayDuration := time.Duration(rand.Intn(1000)) * time.Millisecond
+			time.Sleep(delayDuration)
 			continue
 		}
 		break
@@ -177,6 +175,8 @@ func (im *ipPoolManager) AllocateIP(ctx context.Context, poolName, containerID, 
 }
 
 func (im *ipPoolManager) genRandomIP(ctx context.Context, ipPool *spiderpoolv1.SpiderIPPool) (net.IP, error) {
+	rand.Seed(time.Now().UnixNano())
+
 	rIPList, err := im.rIPManager.ListReservedIPs(ctx)
 	if err != nil {
 		return nil, err
@@ -186,7 +186,8 @@ func (im *ipPoolManager) genRandomIP(ctx context.Context, ipPool *spiderpoolv1.S
 		return nil, err
 	}
 
-	var used []string
+	//var used []string
+	used := make([]string, 0, len(ipPool.Status.AllocatedIPs))
 	for ip := range ipPool.Status.AllocatedIPs {
 		used = append(used, ip)
 	}
@@ -201,11 +202,12 @@ func (im *ipPoolManager) genRandomIP(ctx context.Context, ipPool *spiderpoolv1.S
 	}
 
 	availableIPs := spiderpoolip.IPsDiffSet(totalIPs, append(reservedIPs, usedIPs...))
-	if len(availableIPs) == 0 {
+	avaliableIPCounts := len(availableIPs)
+	if avaliableIPCounts == 0 {
 		return nil, constant.ErrIPUsedOut
 	}
 
-	return availableIPs[rand.Int()%len(availableIPs)], nil
+	return availableIPs[rand.Intn(avaliableIPCounts)], nil
 }
 
 func (im *ipPoolManager) ReleaseIP(ctx context.Context, poolName string, ipAndCIDs []types.IPAndCID) error {

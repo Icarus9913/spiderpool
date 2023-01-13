@@ -26,7 +26,7 @@ type PodManager interface {
 	GetPodByName(ctx context.Context, namespace, podName string) (*corev1.Pod, error)
 	ListPods(ctx context.Context, opts ...client.ListOption) (*corev1.PodList, error)
 	MatchLabelSelector(ctx context.Context, namespace, podName string, labelSelector *metav1.LabelSelector) (bool, error)
-	MergeAnnotations(ctx context.Context, namespace, podName string, annotations map[string]string) error
+	MergeAnnotations(ctx context.Context, pod *corev1.Pod, annotations map[string]string) error
 	GetPodTopController(ctx context.Context, pod *corev1.Pod) (types.PodTopController, error)
 }
 
@@ -87,6 +87,46 @@ func (pm *podManager) MatchLabelSelector(ctx context.Context, namespace, podName
 	return true, nil
 }
 
+func (pm *podManager) MergeAnnotations(ctx context.Context, pod *corev1.Pod, annotations map[string]string) error {
+	rand.Seed(time.Now().UnixNano())
+
+	var err error
+	for i := 0; i <= pm.config.MaxConflictRetries; i++ {
+		if i != 0 {
+			pod, err = pm.GetPodByName(ctx, pod.Namespace, pod.Name)
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(annotations) == 0 {
+			return nil
+		}
+
+		if pod.Annotations == nil {
+			pod.Annotations = map[string]string{}
+		}
+
+		for k, v := range annotations {
+			pod.Annotations[k] = v
+		}
+		if err := pm.client.Update(ctx, pod); err != nil {
+			if !apierrors.IsConflict(err) {
+				return err
+			}
+			if i == pm.config.MaxConflictRetries {
+				return fmt.Errorf("%w (%d times), failed to merge Pod annotations", constant.ErrRetriesExhausted, pm.config.MaxConflictRetries)
+			}
+			time.Sleep(time.Duration(rand.Intn(1<<(i+1))) * pm.config.ConflictRetryUnitTime)
+			continue
+		}
+		break
+	}
+
+	return nil
+}
+
+/*
 func (pm *podManager) MergeAnnotations(ctx context.Context, namespace, podName string, annotations map[string]string) error {
 	rand.Seed(time.Now().UnixNano())
 	for i := 0; i <= pm.config.MaxConflictRetries; i++ {
@@ -121,6 +161,7 @@ func (pm *podManager) MergeAnnotations(ctx context.Context, namespace, podName s
 
 	return nil
 }
+*/
 
 // GetPodTopController will find the pod top owner controller with the given pod.
 // For example, once we create a deployment then it will create replicaset and the replicaset will create pods.

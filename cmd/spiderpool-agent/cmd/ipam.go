@@ -6,7 +6,6 @@ package cmd
 import (
 	"context"
 	"errors"
-
 	"github.com/go-openapi/runtime/middleware"
 	"go.uber.org/zap"
 

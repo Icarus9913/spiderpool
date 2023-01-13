@@ -320,7 +320,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 
 			It("inputs nil Pod", func() {
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), nil)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), nil, spiderpooltypes.PodTopController{})
 				Expect(err).To(MatchError(constant.ErrMissingRequiredParam))
 				Expect(endpoint).To(BeNil())
 			})
@@ -332,7 +332,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 					Times(1)
 
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT, spiderpooltypes.PodTopController{})
 				Expect(err).To(MatchError(constant.ErrUnknown))
 				Expect(endpoint).To(BeNil())
 			})
@@ -353,7 +353,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 				defer patches.Reset()
 
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT, spiderpooltypes.PodTopController{})
 				Expect(err).To(MatchError(constant.ErrUnknown))
 				Expect(endpoint).To(BeNil())
 			})
@@ -374,7 +374,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 				defer patches.Reset()
 
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT, spiderpooltypes.PodTopController{})
 				Expect(err).To(MatchError(constant.ErrUnknown))
 				Expect(endpoint).To(BeNil())
 			})
@@ -395,7 +395,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 				defer patches.Reset()
 
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT, spiderpooltypes.PodTopController{})
 				Expect(err).To(MatchError(constant.ErrUnknown))
 				Expect(endpoint).To(BeNil())
 			})
@@ -413,7 +413,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 					Times(1)
 
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT, spiderpooltypes.PodTopController{})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(endpoint).NotTo(BeNil())
 			})
@@ -431,7 +431,7 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 					Times(1)
 
 				ctx := context.TODO()
-				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT)
+				endpoint, err := endpointManager.MarkIPAllocation(ctx, stringid.GenerateRandomID(), podT, spiderpooltypes.PodTopController{})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(endpoint).NotTo(BeNil())
 			})

@@ -77,20 +77,6 @@ func ConvertIPsToIPRanges(version types.IPVersion, ips []net.IP) ([]string, erro
 		return nil, err
 	}
 
-	set := map[string]struct{}{}
-	for _, ip := range ips {
-		if (version == constant.IPv4 && ip.To4() == nil) ||
-			(version == constant.IPv6 && ip.To4() != nil) {
-			return nil, fmt.Errorf("%wv%d IP '%s'", ErrInvalidIP, version, ip.String())
-		}
-		set[ip.String()] = struct{}{}
-	}
-
-	ips = ips[0:0]
-	for v := range set {
-		ips = append(ips, net.ParseIP(v))
-	}
-
 	sort.Slice(ips, func(i, j int) bool {
 		return bytes.Compare(ips[i].To16(), ips[j].To16()) < 0
 	})
