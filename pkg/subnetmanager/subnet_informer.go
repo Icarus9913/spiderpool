@@ -5,11 +5,11 @@ package subnetmanager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -25,13 +26,14 @@ import (
 	"github.com/spidernet-io/spiderpool/pkg/constant"
 	"github.com/spidernet-io/spiderpool/pkg/election"
 	spiderpoolip "github.com/spidernet-io/spiderpool/pkg/ip"
+	"github.com/spidernet-io/spiderpool/pkg/ippoolmanager"
 	spiderpoolv1 "github.com/spidernet-io/spiderpool/pkg/k8s/apis/spiderpool.spidernet.io/v1"
 	clientset "github.com/spidernet-io/spiderpool/pkg/k8s/client/clientset/versioned"
 	"github.com/spidernet-io/spiderpool/pkg/k8s/client/informers/externalversions"
 	informers "github.com/spidernet-io/spiderpool/pkg/k8s/client/informers/externalversions/spiderpool.spidernet.io/v1"
 	listers "github.com/spidernet-io/spiderpool/pkg/k8s/client/listers/spiderpool.spidernet.io/v1"
 	"github.com/spidernet-io/spiderpool/pkg/logutils"
-	"github.com/spidernet-io/spiderpool/pkg/metric"
+	"github.com/spidernet-io/spiderpool/pkg/utils/convert"
 )
 
 const (
@@ -264,11 +266,14 @@ func (sc *SubnetController) syncHandler(ctx context.Context, subnetName string) 
 		return fmt.Errorf("failed to sync metadata of Subnet: %v", err)
 	}
 
+	// 补label
 	if err := sc.syncControllerSubnet(ctx, subnetCopy); err != nil {
 		return fmt.Errorf("failed to sync reference for controller Subnet: %v", err)
 	}
 
-	if err := sc.syncControlledIPPoolIPs(ctx, subnetCopy); err != nil {
+	// 对齐
+	//if err := sc.syncControlledIPPoolIPs(ctx, subnetCopy); err != nil {
+	if err := sc.duiqi(ctx, subnetCopy); err != nil {
 		return fmt.Errorf("failed to sync the IP ranges of controlled IPPools of Subnet: %v", err)
 	}
 
@@ -343,7 +348,8 @@ func (sc *SubnetController) syncControllerSubnet(ctx context.Context, subnet *sp
 	return nil
 }
 
-func (sc *SubnetController) syncControlledIPPoolIPs(ctx context.Context, subnet *spiderpoolv1.SpiderSubnet) error {
+// TODO: 对齐+刷totalIPCount
+/*func (sc *SubnetController) syncControlledIPPoolIPs(ctx context.Context, subnet *spiderpoolv1.SpiderSubnet) error {
 	selector := labels.Set{constant.LabelIPPoolOwnerSpiderSubnet: subnet.Name}.AsSelector()
 	ipPools, err := sc.IPPoolsLister.List(selector)
 	if err != nil {
@@ -403,6 +409,7 @@ func (sc *SubnetController) syncControlledIPPoolIPs(ctx context.Context, subnet 
 
 	return nil
 }
+*/
 
 func (sc *SubnetController) removeFinalizer(ctx context.Context, subnet *spiderpoolv1.SpiderSubnet) error {
 	logger := logutils.FromContext(ctx)
@@ -427,7 +434,12 @@ func (sc *SubnetController) removeFinalizer(ctx context.Context, subnet *spiderp
 
 	// Some IP addresses are still occupied by the controlled IPPools, ignore
 	// to remove the finalizer.
-	if len(subnet.Status.ControlledIPPools) > 0 {
+	subnetStatusAllocatedIPPool, err := convert.UnmarshalSubnetAllocatedIPPools(subnet.Status.ControlledIPPools)
+	if nil != err {
+		return fmt.Errorf("%w: failed to parse SpiderSubnet %s status controlledIPPools: %v", constant.ErrWrongInput, subnet.Name, err)
+	}
+
+	if len(subnetStatusAllocatedIPPool) > 0 {
 		return nil
 	}
 
@@ -436,6 +448,96 @@ func (sc *SubnetController) removeFinalizer(ctx context.Context, subnet *spiderp
 		return err
 	}
 	logger.Sugar().Infof("Remove finalizer %s", constant.SpiderFinalizer)
+
+	return nil
+}
+
+func (sc *SubnetController) duiqi(ctx context.Context, subnet *spiderpoolv1.SpiderSubnet) error {
+	log := logutils.FromContext(ctx)
+	ipPools, err := sc.IPPoolsLister.List(labels.Set{constant.LabelIPPoolOwnerSpiderSubnet: subnet.Name}.AsSelector())
+	if err != nil {
+		return err
+	}
+
+	// subnet自己spec的所有ip
+	subnetTotalIPs, err := spiderpoolip.AssembleTotalIPs(*subnet.Spec.IPVersion, subnet.Spec.IPs, subnet.Spec.ExcludeIPs)
+	if err != nil {
+		return err
+	}
+	subnetTotalIPsCount := int64(len(subnetTotalIPs))
+
+	subnetStatusAllocatedIPPool, err := convert.UnmarshalSubnetAllocatedIPPools(subnet.Status.ControlledIPPools)
+	if nil != err {
+		return fmt.Errorf("%w: failed to parse SpiderSubnet %s status controlledIPPools: %v", constant.ErrWrongInput, subnet.Name, err)
+	}
+
+	newSubnetAllocations := spiderpoolv1.PoolIPPreAllocations{}
+	for _, pool := range ipPools {
+		if ippoolmanager.IsAutoCreatedIPPool(pool) {
+			allocation, ok := subnetStatusAllocatedIPPool[pool.Name]
+			if ok {
+				newSubnetAllocations[pool.Name] = allocation
+			}
+		} else {
+			poolTotalIPs, err := spiderpoolip.AssembleTotalIPs(*subnet.Spec.IPVersion, pool.Spec.IPs, pool.Spec.ExcludeIPs)
+			if err != nil {
+				return err
+			}
+			if len(poolTotalIPs) == 0 {
+				continue
+			}
+
+			validIPs := spiderpoolip.IPsIntersectionSet(subnetTotalIPs, poolTotalIPs, false)
+			ranges, err := spiderpoolip.ConvertIPsToIPRanges(*pool.Spec.IPVersion, validIPs)
+			if err != nil {
+				return err
+			}
+			newSubnetAllocations[pool.Name] = spiderpoolv1.PoolIPPreAllocation{IPs: ranges}
+		}
+	}
+
+	sync := false
+	if !reflect.DeepEqual(newSubnetAllocations, subnetStatusAllocatedIPPool) {
+		log.With(zap.Any("old", subnet.Status.ControlledIPPools),
+			zap.Any("new", newSubnetAllocations)).
+			Info("subnet status allocation changed")
+
+		marshal, err := json.Marshal(newSubnetAllocations)
+		if nil != err {
+			return err
+		}
+		subnet.Status.ControlledIPPools = pointer.String(string(marshal))
+		sync = true
+	}
+
+	var allocatedIPCount int64
+	for _, poolAllocation := range newSubnetAllocations {
+		tmpIPs, _ := spiderpoolip.ParseIPRanges(*subnet.Spec.IPVersion, poolAllocation.IPs)
+		allocatedIPCount += int64(len(tmpIPs))
+	}
+	if !reflect.DeepEqual(&allocatedIPCount, subnet.Status.AllocatedIPCount) {
+		log.With(zap.Any("old", subnet.Status.AllocatedIPCount),
+			zap.Any("new", allocatedIPCount)).
+			Info("subnet status allocated IP Count changed")
+
+		subnet.Status.AllocatedIPCount = &allocatedIPCount
+		sync = true
+	}
+
+	// Update the count of total IP addresses.
+	if !reflect.DeepEqual(&subnetTotalIPsCount, subnet.Status.TotalIPCount) {
+		log.With(zap.Any("old", subnet.Status.TotalIPCount),
+			zap.Any("new", subnetTotalIPsCount)).
+			Info("subnet status total IP Count changed")
+
+		subnet.Status.TotalIPCount = &subnetTotalIPsCount
+		sync = true
+	}
+
+	if sync {
+		log.Sugar().Infof("go to change subnet: %v", subnet)
+		return sc.Client.Status().Update(ctx, subnet)
+	}
 
 	return nil
 }

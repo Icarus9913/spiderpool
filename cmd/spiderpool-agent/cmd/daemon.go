@@ -306,7 +306,7 @@ func initAgentServiceManagers(ctx context.Context) {
 	if err != nil {
 		logger.Fatal(err.Error())
 	}
-	agentContext.RIPManager = rIPManager
+	agentContext.ReservedIPManager = rIPManager
 
 	logger.Debug("Begin to initialize IPPool manager")
 	ipPoolManager, err := ippoolmanager.NewIPPoolManager(
@@ -317,7 +317,7 @@ func initAgentServiceManagers(ctx context.Context) {
 		},
 		agentContext.CRDManager.GetClient(),
 		agentContext.CRDManager.GetAPIReader(),
-		agentContext.RIPManager,
+		agentContext.ReservedIPManager,
 	)
 	if err != nil {
 		logger.Fatal(err.Error())
@@ -334,6 +334,7 @@ func initAgentServiceManagers(ctx context.Context) {
 			agentContext.CRDManager.GetClient(),
 			agentContext.CRDManager.GetAPIReader(),
 			agentContext.IPPoolManager,
+			agentContext.ReservedIPManager,
 		)
 		if err != nil {
 			logger.Fatal(err.Error())

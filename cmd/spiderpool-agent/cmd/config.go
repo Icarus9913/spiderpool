@@ -63,8 +63,8 @@ var envInfo = []envConf{
 	{"SPIDERPOOL_UPDATE_CR_MAX_RETRIES", "3", false, nil, nil, &agentContext.Cfg.UpdateCRMaxRetries},
 	{"SPIDERPOOL_UPDATE_CR_RETRY_UNIT_TIME", "50", false, nil, nil, &agentContext.Cfg.UpdateCRRetryUnitTime},
 	{"SPIDERPOOL_IPPOOL_MAX_ALLOCATED_IPS", "5000", true, nil, nil, &agentContext.Cfg.IPPoolMaxAllocatedIPs},
-	{"SPIDERPOOL_WAIT_SUBNET_POOL_TIME_IN_SECOND", "1", false, nil, nil, &agentContext.Cfg.WaitSubnetPoolTime},
-	{"SPIDERPOOL_WAIT_SUBNET_POOL_MAX_RETRIES", "50", false, nil, nil, &agentContext.Cfg.WaitSubnetPoolMaxRetries},
+	{"SPIDERPOOL_WAIT_SUBNET_POOL_TIME_IN_SECOND", "2", false, nil, nil, &agentContext.Cfg.WaitSubnetPoolTime},
+	{"SPIDERPOOL_WAIT_SUBNET_POOL_MAX_RETRIES", "25", false, nil, nil, &agentContext.Cfg.WaitSubnetPoolMaxRetries},
 }
 
 type Config struct {
@@ -114,16 +114,16 @@ type AgentContext struct {
 	InnerCancel context.CancelFunc
 
 	// manager
-	IPAM            ipam.IPAM
-	CRDManager      ctrl.Manager
-	IPPoolManager   ippoolmanager.IPPoolManager
-	EndpointManager workloadendpointmanager.WorkloadEndpointManager
-	RIPManager      reservedipmanager.ReservedIPManager
-	NodeManager     nodemanager.NodeManager
-	NSManager       namespacemanager.NamespaceManager
-	PodManager      podmanager.PodManager
-	StsManager      statefulsetmanager.StatefulSetManager
-	SubnetManager   subnetmanager.SubnetManager
+	IPAM              ipam.IPAM
+	CRDManager        ctrl.Manager
+	IPPoolManager     ippoolmanager.IPPoolManager
+	EndpointManager   workloadendpointmanager.WorkloadEndpointManager
+	ReservedIPManager reservedipmanager.ReservedIPManager
+	NodeManager       nodemanager.NodeManager
+	NSManager         namespacemanager.NamespaceManager
+	PodManager        podmanager.PodManager
+	StsManager        statefulsetmanager.StatefulSetManager
+	SubnetManager     subnetmanager.SubnetManager
 
 	// handler
 	HttpServer        *server.Server

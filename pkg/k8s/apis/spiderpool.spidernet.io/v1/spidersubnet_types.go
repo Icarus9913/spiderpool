@@ -42,7 +42,7 @@ type SubnetSpec struct {
 // SubnetStatus defines the observed state of SpiderSubnet.
 type SubnetStatus struct {
 	// +kubebuilder:validation:Optional
-	ControlledIPPools PoolIPPreAllocations `json:"controlledIPPools,omitempty"`
+	ControlledIPPools *string `json:"controlledIPPools,omitempty"`
 
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Optional
