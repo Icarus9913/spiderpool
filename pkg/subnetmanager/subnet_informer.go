@@ -454,10 +454,16 @@ func (sc *SubnetController) removeFinalizer(ctx context.Context, subnet *spiderp
 
 func (sc *SubnetController) duiqi(ctx context.Context, subnet *spiderpoolv1.SpiderSubnet) error {
 	log := logutils.FromContext(ctx)
-	ipPools, err := sc.IPPoolsLister.List(labels.Set{constant.LabelIPPoolOwnerSpiderSubnet: subnet.Name}.AsSelector())
-	if err != nil {
+	var poolList spiderpoolv1.SpiderIPPoolList
+	err := sc.APIReader.List(ctx, &poolList, client.MatchingLabels{constant.LabelIPPoolOwnerSpiderSubnet: subnet.Name})
+	if nil != err {
 		return err
 	}
+
+	//ipPools, err := sc.IPPoolsLister.List(labels.Set{constant.LabelIPPoolOwnerSpiderSubnet: subnet.Name}.AsSelector())
+	//if err != nil {
+	//	return err
+	//}
 
 	// subnet自己spec的所有ip
 	subnetTotalIPs, err := spiderpoolip.AssembleTotalIPs(*subnet.Spec.IPVersion, subnet.Spec.IPs, subnet.Spec.ExcludeIPs)
@@ -472,8 +478,8 @@ func (sc *SubnetController) duiqi(ctx context.Context, subnet *spiderpoolv1.Spid
 	}
 
 	newSubnetAllocations := spiderpoolv1.PoolIPPreAllocations{}
-	for _, pool := range ipPools {
-		if ippoolmanager.IsAutoCreatedIPPool(pool) {
+	for _, pool := range poolList.Items {
+		if ippoolmanager.IsAutoCreatedIPPool(&pool) {
 			allocation, ok := subnetStatusAllocatedIPPool[pool.Name]
 			if ok {
 				newSubnetAllocations[pool.Name] = allocation
