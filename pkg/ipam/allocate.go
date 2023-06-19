@@ -482,7 +482,7 @@ func (i *ipam) selectByPod(ctx context.Context, version types.IPVersion, ipPool 
 	if ipPool.Spec.PodAffinity != nil {
 		if ippoolmanager.IsAutoCreatedIPPool(ipPool) {
 			if !ippoolmanager.IsMatchAutoPoolAffinity(ipPool.Spec.PodAffinity, podTopController) {
-				return fmt.Errorf("unmatched Pod annifity of auto-created IPool %s", ipPool.Name)
+				return fmt.Errorf("unmatched Pod affinity of auto-created IPool %s", ipPool.Name)
 			}
 
 			return nil

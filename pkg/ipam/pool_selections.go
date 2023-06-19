@@ -233,7 +233,7 @@ func (i *ipam) findAppAutoPool(ctx context.Context, subnetName, ifName, labelIPP
 
 			// we fetched Auto-created IPPool but it doesn't have any IPs, just wait for a while and let the IPPool informer to allocate IPs for it
 			if !isPoolIPsDesired(pool, desiredIPNumber) {
-				log.Sugar().Warnf("fetch SubnetIPPool %d times: retrieved IPPool '%s' but doesn't have the desiredIPNumber IPs, wait for a second and get a retry", j, pool.Name)
+				log.Sugar().Warnf("fetch SubnetIPPool %d times: retrieved IPPool '%s' but doesn't have the desiredIPNumber %d IPs, wait for a second and get a retry", j, pool.Name, desiredIPNumber)
 				time.Sleep(i.config.OperationGapDuration)
 				continue
 			}

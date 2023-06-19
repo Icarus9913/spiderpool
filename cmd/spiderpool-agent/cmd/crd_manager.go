@@ -4,6 +4,8 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,9 +25,31 @@ func init() {
 }
 
 func newCRDManager() (ctrl.Manager, error) {
+	burst, qps := 200, 100
+
+	burstStr := os.Getenv("BURST")
+	qpsStr := os.Getenv("QPS")
+	if burstStr != "" {
+		tmpBurst, err := strconv.Atoi(burstStr)
+		if nil != err {
+			fmt.Println("===============BurstError: ", err)
+		} else {
+			burst = tmpBurst
+		}
+	}
+
+	if qpsStr != "" {
+		tmpQPS, err := strconv.Atoi(qpsStr)
+		if nil != err {
+			fmt.Println("===============QPSError: ", err)
+		} else {
+			qps = tmpQPS
+		}
+	}
+
 	config := ctrl.GetConfigOrDie()
-	config.Burst = 100
-	config.QPS = 50
+	config.Burst = burst
+	config.QPS = float32(qps)
 
 	mgr, err := ctrl.NewManager(config, ctrl.Options{
 		Scheme:                 scheme,
