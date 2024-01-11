@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/spidernet-io/e2eframework/tools"
+	errors2 "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
@@ -498,7 +499,6 @@ var _ = Describe("MacvlanOverlayOne", Label("overlay", "one-nic", "coordinator")
 					CniType: pointer.String(constant.MacvlanCNI),
 					MacvlanConfig: &spiderpoolv2beta1.SpiderMacvlanCniConfig{
 						Master: []string{common.NIC1},
-						VlanID: pointer.Int32(200),
 					},
 					CoordinatorConfig: &spiderpoolv2beta1.CoordinatorSpec{
 						Mode:             &mode,
@@ -524,6 +524,28 @@ var _ = Describe("MacvlanOverlayOne", Label("overlay", "one-nic", "coordinator")
 		// Therefore, verifying spidercoodinator has the lowest priority.
 		It("It should be possible to detect ip conflicts and log output", Label("C00006", "V00007"), func() {
 			podAnno := types.AnnoPodIPPoolValue{}
+
+			var vlanID int32 = 200
+			Eventually(func() error {
+				var smc spiderpoolv2beta1.SpiderMultusConfig
+				err := frame.KClient.Get(context.TODO(), apitypes.NamespacedName{
+					Namespace: namespace,
+					Name:      multusNadName,
+				}, &smc)
+				if nil != err {
+					return err
+				}
+
+				Expect(smc.Spec.MacvlanConfig).NotTo(BeNil())
+				smc.Spec.MacvlanConfig.VlanID = pointer.Int32(vlanID)
+
+				err = frame.KClient.Update(context.TODO(), &smc)
+				if nil != err {
+					return err
+				}
+				GinkgoWriter.Printf("update SpiderMultusConfig %s/%s with vlanID %d successfully\n", namespace, multusNadName, vlanID)
+				return nil
+			}).WithTimeout(time.Minute).WithPolling(time.Second).Should(BeNil())
 
 			if frame.Info.IpV4Enabled {
 				spiderPoolIPv4SubnetVlan200, err := common.GetIppoolByName(frame, common.SpiderPoolIPv4SubnetVlan200)
@@ -667,6 +689,144 @@ var _ = Describe("MacvlanOverlayOne", Label("overlay", "one-nic", "coordinator")
 
 				return frame.CheckPodListRunning(newPodList)
 			}, common.PodStartTimeout, common.ForcedWaitingTime).Should(BeTrue())
+		})
+
+		It("The conflict IPs for stateless Pod should be released", Label("C00018"), func() {
+			ctx := context.TODO()
+
+			// 1. check the spiderpool-agent ENV SPIDERPOOL_ENABLED_RELEASE_CONFLICT_IPS enabled or missed
+			const SPIDERPOOL_ENABLED_RELEASE_CONFLICT_IPS = "SPIDERPOOL_ENABLED_RELEASE_CONFLICT_IPS"
+			spiderpoolAgentDS, err := frame.GetDaemonSet(constant.SpiderpoolAgent, "kube-system")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(spiderpoolAgentDS.Spec.Template.Spec.Containers).To(HaveLen(1))
+
+			// the release conflicted IPs feature is default to be ture if we do not set the ENV
+			isReleaseConflictIPs := true
+			for _, env := range spiderpoolAgentDS.Spec.Template.Spec.Containers[0].Env {
+				if env.Name == SPIDERPOOL_ENABLED_RELEASE_CONFLICT_IPS {
+					parseBool, err := strconv.ParseBool(env.Value)
+					Expect(err).NotTo(HaveOccurred())
+					isReleaseConflictIPs = parseBool
+					break
+				}
+			}
+
+			if !isReleaseConflictIPs {
+				Skip("release conflicted IPs feature is disabled, skip this e2e case")
+			}
+
+			podAnno := types.AnnoPodIPPoolValue{}
+			// 2. create an IPPool with conflicted IPs
+			if frame.Info.IpV4Enabled {
+				conflictV4PoolName := "conflictV4Pool"
+				conflictV4IPs := "172.20.41.2-172.20.41.4"
+				firstConflictV4IP := strings.Split(conflictV4IPs, "-")[0]
+
+				Eventually(func() error {
+					if !frame.Info.SpiderSubnetEnabled {
+						return nil
+					}
+
+					var v4Subnet spiderpoolv2beta1.SpiderSubnet
+					err := frame.KClient.Get(ctx, apitypes.NamespacedName{Name: common.SpiderPoolIPv4SubnetDefault}, &v4Subnet)
+					if nil != err {
+						if errors2.IsNotFound(err) {
+							return nil
+						}
+						return err
+					}
+					GinkgoWriter.Printf("try to add IP %s to SpiderSubnet %s\n", firstConflictV4IP, common.SpiderPoolIPv4SubnetDefault)
+					v4Subnet.Spec.IPs = append(v4Subnet.Spec.IPs, firstConflictV4IP)
+					err = frame.KClient.Update(ctx, &v4Subnet)
+					if nil != err {
+						return err
+					}
+					return nil
+				}).WithTimeout(time.Minute * 2).WithPolling(time.Second).Should(BeNil())
+
+				var conflictV4Pool spiderpoolv2beta1.SpiderIPPool
+				spiderPoolIPv4PoolDefault, err := common.GetIppoolByName(frame, common.SpiderPoolIPv4PoolDefault)
+				Expect(err).NotTo(HaveOccurred(), "failed to get ippool %s, error is %v", common.SpiderPoolIPv4PoolDefault, err)
+				conflictV4Pool.Name = conflictV4PoolName
+				conflictV4Pool.Spec.Subnet = spiderPoolIPv4PoolDefault.Spec.Subnet
+				conflictV4Pool.Spec.Gateway = spiderPoolIPv4PoolDefault.Spec.Gateway
+				conflictV4Pool.Spec.IPs = []string{conflictV4IPs}
+				err = frame.KClient.Create(ctx, &conflictV4Pool)
+				Expect(err).NotTo(HaveOccurred())
+
+				// set an IP address for NIC to mock IP conflict
+				commandV4Str := fmt.Sprintf("ip addr add %s dev eth0", firstConflictV4IP)
+				output, err := frame.DockerExecCommand(ctx, common.VlanGatewayContainer, commandV4Str)
+				Expect(err).NotTo(HaveOccurred(), "Failed to exec %s for Node %s, error is: %v, log: %v", commandV4Str, common.VlanGatewayContainer, err, string(output))
+
+				podAnno.IPv4Pools = []string{conflictV4PoolName}
+			}
+
+			if frame.Info.IpV6Enabled {
+				conflictV6PoolName := "conflictV6Pool"
+				conflictV6IPs := "fc00:f853:ccd:e793:e::2-fc00:f853:ccd:e793:e::4"
+				firstConflictV6IP := strings.Split(conflictV6IPs, "-")[0]
+
+				Eventually(func() error {
+					if !frame.Info.SpiderSubnetEnabled {
+						return nil
+					}
+
+					var v6Subnet spiderpoolv2beta1.SpiderSubnet
+					err := frame.KClient.Get(ctx, apitypes.NamespacedName{Name: common.SpiderPoolIPv6SubnetDefault}, &v6Subnet)
+					if nil != err {
+						if errors2.IsNotFound(err) {
+							return nil
+						}
+						return err
+					}
+					GinkgoWriter.Printf("try to add IP %s to SpiderSubnet %s\n", firstConflictV6IP, common.SpiderPoolIPv4SubnetDefault)
+					v6Subnet.Spec.IPs = append(v6Subnet.Spec.IPs, firstConflictV6IP)
+					err = frame.KClient.Update(ctx, &v6Subnet)
+					if nil != err {
+						return err
+					}
+
+					return nil
+				}).WithTimeout(time.Minute * 2).WithPolling(time.Second).Should(BeNil())
+
+				var conflictV6Pool spiderpoolv2beta1.SpiderIPPool
+				spiderPoolIPv6PoolDefault, err := common.GetIppoolByName(frame, common.SpiderPoolIPv6PoolDefault)
+				Expect(err).NotTo(HaveOccurred(), "failed to get ippool %s, error is %v", common.SpiderPoolIPv6PoolDefault, err)
+				conflictV6Pool.Name = conflictV6PoolName
+				conflictV6Pool.Spec.Subnet = spiderPoolIPv6PoolDefault.Spec.Subnet
+				conflictV6Pool.Spec.Gateway = spiderPoolIPv6PoolDefault.Spec.Gateway
+				conflictV6Pool.Spec.IPs = []string{conflictV6IPs}
+				err = frame.KClient.Create(ctx, &conflictV6Pool)
+				Expect(err).NotTo(HaveOccurred())
+
+				// set an IP address for NIC to mock IP conflict
+				commandV6Str := fmt.Sprintf("ip addr add %s dev eth0", firstConflictV6IP)
+				output, err := frame.DockerExecCommand(ctx, common.VlanGatewayContainer, commandV6Str)
+				Expect(err).NotTo(HaveOccurred(), "Failed to exec %s for Node %s, error is: %v, log: %v", commandV6Str, common.VlanGatewayContainer, err, string(output))
+
+				podAnno.IPv6Pools = []string{conflictV6PoolName}
+			}
+			podAnnoMarshal, err := json.Marshal(podAnno)
+			Expect(err).NotTo(HaveOccurred())
+
+			// 3. create a pod
+			anno := make(map[string]string)
+			anno[common.MultusDefaultNetwork] = fmt.Sprintf("%s/%s", namespace, multusNadName)
+			anno[constant.AnnoPodIPPool] = string(podAnnoMarshal)
+			deployObject := common.GenerateExampleDeploymentYaml(depName, namespace, int32(1))
+			deployObject.Spec.Template.Annotations = anno
+			ctx, cancel := context.WithTimeout(context.Background(), common.PodStartTimeout)
+			defer cancel()
+
+			GinkgoWriter.Printf("try to create Pod with conflicted IPs IPPool")
+			podList, err := common.CreateDeployUntilExpectedReplicas(frame, deployObject, ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			// 4. delete the Deployments
+			// After there is no conflicting IP, the pod can run normally.
+			GinkgoWriter.Printf("The Pod finally runs, task done.")
+			Expect(frame.DeletePodList(podList)).NotTo(HaveOccurred())
 		})
 	})
 

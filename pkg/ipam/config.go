@@ -18,9 +18,10 @@ type IPAMConfig struct {
 	EnableIPv4 bool
 	EnableIPv6 bool
 
-	EnableSpiderSubnet     bool
-	EnableStatefulSet      bool
-	EnableKubevirtStaticIP bool
+	EnableSpiderSubnet       bool
+	EnableStatefulSet        bool
+	EnableKubevirtStaticIP   bool
+	EnableReleaseConflictIPs bool
 
 	OperationRetries     int
 	OperationGapDuration time.Duration

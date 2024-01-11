@@ -12,6 +12,7 @@ var (
 	ErrNoAvailablePool  = errors.New("no IPPool available")
 	ErrRetriesExhausted = errors.New("exhaust all retries")
 	ErrIPUsedOut        = errors.New("all IP addresses used out")
+	ErrIPConflict       = errors.New("ip conflict")
 )
 
 var ErrMissingRequiredParam = errors.New("must be specified")
