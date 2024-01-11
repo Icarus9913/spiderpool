@@ -74,7 +74,7 @@ type _unixDeleteAgentIpamIp struct{}
 // Handle handles DELETE requests for /ipam/ip.
 func (g *_unixDeleteAgentIpamIp) Handle(params daemonset.DeleteIpamIPParams) middleware.Responder {
 	if err := params.IpamDelArgs.Validate(strfmt.Default); err != nil {
-		return daemonset.NewPostIpamIPFailure().WithPayload(models.Error(err.Error()))
+		return daemonset.NewDeleteIpamIPFailure().WithPayload(models.Error(err.Error()))
 	}
 
 	logger := logutils.Logger.Named("IPAM").With(
@@ -121,7 +121,58 @@ func (g *_unixPostAgentIpamIps) Handle(params daemonset.PostIpamIpsParams) middl
 type _unixDeleteAgentIpamIps struct{}
 
 // Handle handles DELETE requests for /ipam/ips.
+// We reuse the models.IPConfig as the params, but we just only can use its "Address,NIC,Version" properties.
 func (g *_unixDeleteAgentIpamIps) Handle(params daemonset.DeleteIpamIpsParams) middleware.Responder {
+	err := params.IpamBatchDelArgs.Validate(strfmt.Default)
+	if nil != err {
+		return daemonset.NewDeleteIpamIpsFailure().WithPayload(models.Error(err.Error()))
+	}
+
+	log := logutils.Logger.Named("IPAM").With(
+		zap.String("Operation", "Release conflict IPs"),
+		zap.String("ContainerID", *params.IpamBatchDelArgs.ContainerID),
+		zap.String("NetNamespace", params.IpamBatchDelArgs.NetNamespace),
+		zap.String("PodNamespace", *params.IpamBatchDelArgs.PodNamespace),
+		zap.String("PodName", *params.IpamBatchDelArgs.PodName),
+		zap.String("PodUID", *params.IpamBatchDelArgs.PodUID),
+	)
+	ctx := logutils.IntoContext(params.HTTPRequest.Context(), log)
+
+	// log
+	if params.IpamBatchDelArgs.IsReleaseConflictIPs && !agentContext.Cfg.EnableReleaseConflictIPs {
+		result, err := params.IpamBatchDelArgs.MarshalBinary()
+		if nil != err {
+			for index := range params.IpamBatchDelArgs.Ips {
+				log.Sugar().Infof("EnableReleaseConflictIPs is disabled, skip release NIC '%s' IPv%d IP: %s",
+					*params.IpamBatchDelArgs.Ips[index].Nic, *params.IpamBatchDelArgs.Ips[index].Version, *params.IpamBatchDelArgs.Ips[index].Address)
+			}
+		} else {
+			log.Sugar().Infof("EnableReleaseConflictIPs is disabled, skip to release IPs: %s", string(result))
+		}
+
+		return daemonset.NewDeleteIpamIpsOK()
+	}
+
+	// The total count of IP releasing.
+	metric.IpamReleaseTotalCounts.Add(ctx, 1)
+
+	timeRecorder := metric.NewTimeRecorder()
+	defer func() {
+		// Time taken for once IP releasing.
+		releaseDuration := timeRecorder.SinceInSeconds()
+		metric.IPAMDurationConstruct.RecordIPAMReleaseDuration(ctx, releaseDuration)
+		logger.Sugar().Infof("IPAM releasing duration: %v", releaseDuration)
+	}()
+
+	err = agentContext.IPAM.ReleaseIPs(ctx, params.IpamBatchDelArgs)
+	if nil != err {
+		// The count of failures in IP releasing.
+		metric.IpamReleaseFailureCounts.Add(ctx, 1)
+		gatherIPAMReleasingErrMetric(ctx, err)
+		logger.Error(err.Error())
+		return daemonset.NewDeleteIpamIpsFailure().WithPayload(models.Error(err.Error()))
+	}
+
 	return daemonset.NewDeleteIpamIpsOK()
 }
 

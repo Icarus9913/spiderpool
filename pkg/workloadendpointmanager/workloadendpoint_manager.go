@@ -6,6 +6,7 @@ package workloadendpointmanager
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/spidernet-io/spiderpool/api/v1/agent/models"
 	"github.com/spidernet-io/spiderpool/pkg/constant"
 	spiderpoolv2beta1 "github.com/spidernet-io/spiderpool/pkg/k8s/apis/spiderpool.spidernet.io/v2beta1"
 	"github.com/spidernet-io/spiderpool/pkg/logutils"
@@ -31,6 +33,7 @@ type WorkloadEndpointManager interface {
 	PatchIPAllocationResults(ctx context.Context, results []*types.AllocationResult, endpoint *spiderpoolv2beta1.SpiderEndpoint, pod *corev1.Pod, podController types.PodTopController, isMultipleNicWithNoName bool) error
 	ReallocateCurrentIPAllocation(ctx context.Context, uid, nodeName, nic string, endpoint *spiderpoolv2beta1.SpiderEndpoint, isMultipleNicWithNoName bool) error
 	UpdateAllocationNICName(ctx context.Context, endpoint *spiderpoolv2beta1.SpiderEndpoint, nic string) (*spiderpoolv2beta1.PodIPAllocation, error)
+	ReleaseEndpointIPs(ctx context.Context, endpoint *spiderpoolv2beta1.SpiderEndpoint, uid string, ips []*models.IPConfig) ([]spiderpoolv2beta1.IPAllocationDetail, error)
 }
 
 type workloadEndpointManager struct {
@@ -223,4 +226,58 @@ func (em *workloadEndpointManager) UpdateAllocationNICName(ctx context.Context, 
 	}
 
 	return &endpoint.Status.Current, nil
+}
+
+func (em *workloadEndpointManager) ReleaseEndpointIPs(ctx context.Context, endpoint *spiderpoolv2beta1.SpiderEndpoint, uid string, ips []*models.IPConfig) ([]spiderpoolv2beta1.IPAllocationDetail, error) {
+	log := logutils.FromContext(ctx)
+
+	if endpoint.Status.Current.UID != uid {
+		return nil, fmt.Errorf("the SpiderEndpoint recorded PodUID '%d' is unmacthed with the given PodUID '%s'", endpoint.Status.Current.UID, uid)
+	}
+
+	var tmpCIDR string
+	isMatchBadIP := false
+	ipAllocationDetails := []spiderpoolv2beta1.IPAllocationDetail{}
+	for _, releaseIPDetail := range ips {
+		for index := 0; index < len(endpoint.Status.Current.IPs); index++ {
+			if endpoint.Status.Current.IPs[index].NIC == *releaseIPDetail.Nic {
+
+				// check the given IPs whether match the SpiderEndpoint recorded data
+				if endpoint.Status.Current.IPs[index].IPv4 != nil && *releaseIPDetail.Version == constant.IPv4 {
+					tmpCIDR = *endpoint.Status.Current.IPs[index].IPv4
+				} else if endpoint.Status.Current.IPs[index].IPv6 != nil && *releaseIPDetail.Version == constant.IPv6 {
+					tmpCIDR = *endpoint.Status.Current.IPs[index].IPv6
+				}
+				if len(tmpCIDR) != 0 {
+					tmpIP, _, err := net.ParseCIDR(tmpCIDR)
+					if nil == err && tmpIP.String() == *releaseIPDetail.Address {
+						isMatchBadIP = true
+					}
+					// reset the tmpCIDR
+					tmpCIDR = ""
+				}
+
+				// just release this NIC whole IPs
+				if isMatchBadIP {
+					log.Sugar().Infof("try to release NIC '%s' IPs '%s'", endpoint.Status.Current.IPs[index].NIC, endpoint.Status.Current.IPs[index].String())
+					ipAllocationDetails = append(ipAllocationDetails, endpoint.Status.Current.IPs[index])
+					// remove the element
+					endpoint.Status.Current.IPs = append(endpoint.Status.Current.IPs[:index], endpoint.Status.Current.IPs[index+1:]...)
+					// reset the flag
+					isMatchBadIP = false
+					break
+				}
+			}
+		}
+	}
+
+	if len(ipAllocationDetails) != 0 {
+		log.Sugar().Debugf("try to update SpiderEndpoint %s", endpoint)
+		err := em.client.Update(ctx, endpoint)
+		if nil != err {
+			return nil, err
+		}
+	}
+
+	return ipAllocationDetails, nil
 }

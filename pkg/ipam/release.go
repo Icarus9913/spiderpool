@@ -204,3 +204,55 @@ func (i *ipam) release(ctx context.Context, uid string, details []spiderpoolv2be
 
 	return nil
 }
+
+// ReleaseIPs will release the given IP corresponding NIC whole IPs,
+// and we will release the SpiderEndpoint recorded IPs first and release the SpiderIPPool recorded IPs later.
+func (i *ipam) ReleaseIPs(ctx context.Context, delArgs *models.IpamBatchDelArgs) error {
+	log := logutils.FromContext(ctx)
+
+	// log
+	params, err := delArgs.MarshalBinary()
+	if nil != err {
+		for index := range delArgs.Ips {
+			log.Sugar().Infof("try to release NIC '%s' IPv%d IP: %s",
+				*delArgs.Ips[index].Nic, *delArgs.Ips[index].Version, *delArgs.Ips[index].Address)
+		}
+	} else {
+		log.Sugar().Infof("try to release IPs: %s", string(params))
+	}
+
+	// find Pod UID
+	if len(*delArgs.PodUID) == 0 {
+		pod, err := i.podManager.GetPodByName(ctx, *delArgs.PodNamespace, *delArgs.PodName, constant.IgnoreCache)
+		if nil != err {
+			if apierrors.IsNotFound(err) {
+				log.Sugar().Warnf("no Pod '%s/%s' found, ignore to release IPs without PodUID", *delArgs.PodNamespace, *delArgs.PodName)
+				return nil
+			}
+			return fmt.Errorf("failed to get Pod '%s/%s', error: %v", *delArgs.PodNamespace, *delArgs.PodName, err)
+		}
+		*delArgs.PodUID = string(pod.UID)
+	}
+
+	// release SpiderEndpoint IPs
+	endpoint, err := i.endpointManager.GetEndpointByName(ctx, *delArgs.PodNamespace, *delArgs.PodName, constant.IgnoreCache)
+	if nil != err {
+		return fmt.Errorf("failed to get SpiderEndpoint '%s/%s', error: %v", *delArgs.PodNamespace, *delArgs.PodName, err)
+	}
+
+	ipAllocationDetails, err := i.endpointManager.ReleaseEndpointIPs(ctx, endpoint, *delArgs.PodUID, delArgs.Ips)
+	if nil != err {
+		return fmt.Errorf("failed to release SpiderEndpoint IPs, error: %v", err)
+	}
+
+	// release IPPool IPs
+	if len(ipAllocationDetails) != 0 {
+		log.Sugar().Infof("try to release IPs: %v", ipAllocationDetails)
+		err := i.release(ctx, *delArgs.PodUID, ipAllocationDetails)
+		if nil != err {
+			return err
+		}
+	}
+
+	return nil
+}

@@ -88,6 +88,12 @@ paths:
         Delete multiple ip for a pod, case for spiderflat compent
       tags:
         - daemonset
+      parameters:
+        - name: ipam-batch-del-args
+          in: body
+          required: true
+          schema:
+            $ref: "#/definitions/IpamBatchDelArgs"
       responses:
         "200":
           description: Success
@@ -347,3 +353,29 @@ definitions:
         type: string
       podNamespace:
         type: string
+  IpamBatchDelArgs:
+    description: IPAM release IPs information
+    type: object
+    properties:
+      isReleaseConflictIPs:
+        type: boolean
+      containerID:
+        type: string
+      netNamespace:
+        type: string
+      podNamespace:
+        type: string
+      podName:
+        type: string
+      podUID:
+        type: string
+      ips:
+        type: array
+        items:
+          $ref: "#/definitions/IpConfig"
+    required:
+      - containerID
+      - podNamespace
+      - podName
+      - podUID
+      - ips

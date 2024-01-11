@@ -17,9 +17,21 @@ import (
 	"github.com/mdlayher/arp"
 	"github.com/mdlayher/ethernet"
 	"github.com/mdlayher/ndp"
-	"github.com/spidernet-io/spiderpool/pkg/errgroup"
 	"go.uber.org/zap"
+	"k8s.io/utils/pointer"
+
+	"github.com/spidernet-io/spiderpool/api/v1/agent/models"
+	"github.com/spidernet-io/spiderpool/pkg/constant"
+	"github.com/spidernet-io/spiderpool/pkg/errgroup"
+	"github.com/spidernet-io/spiderpool/pkg/lock"
+	"github.com/spidernet-io/spiderpool/pkg/types"
 )
+
+type conflictIPDetail struct {
+	IPVersion types.IPVersion
+	Addr      string
+	NIC       string
+}
 
 type IPChecker struct {
 	retries       int
@@ -31,6 +43,9 @@ type IPChecker struct {
 	arpClient     *arp.Client
 	ndpClient     *ndp.Conn
 	logger        *zap.Logger
+
+	conflictIPDic map[conflictIPDetail]struct{}
+	lock.RWMutex
 }
 
 func NewIPChecker(retries int, interval, timeout string, hostNs, netns ns.NetNS, logger *zap.Logger) (*IPChecker, error) {
@@ -55,6 +70,7 @@ func NewIPChecker(retries int, interval, timeout string, hostNs, netns ns.NetNS,
 	ipc.hostNs = hostNs
 	ipc.netns = netns
 	ipc.logger = logger
+	ipc.conflictIPDic = make(map[conflictIPDetail]struct{})
 	return ipc, nil
 }
 
@@ -160,15 +176,15 @@ func (ipc *IPChecker) ipCheckingByARP() error {
 	ticker := time.NewTicker(ipc.interval)
 	defer ticker.Stop()
 
-	stop := false
-	for i := 0; i < ipc.retries && !stop; i++ {
+END:
+	for i := 0; i < ipc.retries; i++ {
 		select {
 		case <-ctx.Done():
-			stop = true
+			break END
 		case <-ticker.C:
 			err = ipc.arpClient.WriteTo(packet, ethernet.Broadcast)
 			if err != nil {
-				stop = true
+				break END
 			}
 		}
 	}
@@ -180,8 +196,15 @@ func (ipc *IPChecker) ipCheckingByARP() error {
 	if conflictingMac != "" {
 		// found ip conflicting
 		ipc.logger.Error("Found IPv4 address conflicting", zap.String("Conflicting IP", ipc.ip4.String()), zap.String("Host", conflictingMac))
-		return fmt.Errorf("pod's interface %s with an conflicting ip %s, %s is located at %s", ipc.ifi.Name,
-			ipc.ip4.String(), ipc.ip4.String(), conflictingMac)
+		ipc.Lock()
+		ipc.conflictIPDic[conflictIPDetail{
+			IPVersion: constant.IPv4,
+			Addr:      ipc.ip4.String(),
+			NIC:       ipc.ifi.Name,
+		}] = struct{}{}
+		ipc.Unlock()
+		return fmt.Errorf("%w: pod's interface %s with an conflicting ip %s, %s is located at %s",
+			constant.ErrIPConflict, ipc.ifi.Name, ipc.ip4.String(), ipc.ip4.String(), conflictingMac)
 	}
 
 	ipc.logger.Debug("No ipv4 address conflict", zap.String("IPv4 address", ipc.ip4.String()))
@@ -211,8 +234,15 @@ func (ipc *IPChecker) ipCheckingByNDP() error {
 		if err.Error() == NDPFoundReply.Error() {
 			if replyMac != ipc.ifi.HardwareAddr.String() {
 				ipc.logger.Error("Found IPv6 address conflicting", zap.String("Conflicting IP", ipc.ip6.String()), zap.String("Host", replyMac))
-				return fmt.Errorf("pod's interface %s with an conflicting ip %s, %s is located at %s", ipc.ifi.Name,
-					ipc.ip6.String(), ipc.ip6.String(), replyMac)
+				ipc.Lock()
+				ipc.conflictIPDic[conflictIPDetail{
+					IPVersion: constant.IPv6,
+					Addr:      ipc.ip6.String(),
+					NIC:       ipc.ifi.Name,
+				}] = struct{}{}
+				ipc.Unlock()
+				return fmt.Errorf("%w: pod's interface %s with an conflicting ip %s, %s is located at %s",
+					constant.ErrIPConflict, ipc.ifi.Name, ipc.ip6.String(), ipc.ip6.String(), replyMac)
 			}
 		}
 	}
@@ -285,4 +315,24 @@ func (ipc *IPChecker) sendReceive(m ndp.Message) (string, error) {
 		return "", errRetry
 	}
 	return "", err
+}
+
+func (ipc *IPChecker) ConflictIPs() []*models.IPConfig {
+	ipc.RLock()
+	defer ipc.RUnlock()
+
+	if len(ipc.conflictIPDic) == 0 {
+		return nil
+	}
+
+	conflictIPs := make([]*models.IPConfig, 0, len(ipc.conflictIPDic))
+	for tmpConflictIPDetail := range ipc.conflictIPDic {
+		tmpIPDetail := &models.IPConfig{
+			Address: pointer.String(tmpConflictIPDetail.Addr),
+			Nic:     pointer.String(tmpConflictIPDetail.NIC),
+			Version: pointer.Int64(tmpConflictIPDetail.IPVersion),
+		}
+		conflictIPs = append(conflictIPs, tmpIPDetail)
+	}
+	return conflictIPs
 }

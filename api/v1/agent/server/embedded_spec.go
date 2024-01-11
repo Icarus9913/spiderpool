@@ -175,6 +175,16 @@ func init() {
           "daemonset"
         ],
         "summary": "Delete multiple ip as a batch",
+        "parameters": [
+          {
+            "name": "ipam-batch-del-args",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IpamBatchDelArgs"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success"
@@ -467,6 +477,43 @@ func init() {
           "items": {
             "$ref": "#/definitions/Route"
           }
+        }
+      }
+    },
+    "IpamBatchDelArgs": {
+      "description": "IPAM release IPs information",
+      "type": "object",
+      "required": [
+        "containerID",
+        "podNamespace",
+        "podName",
+        "podUID",
+        "ips"
+      ],
+      "properties": {
+        "containerID": {
+          "type": "string"
+        },
+        "ips": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IpConfig"
+          }
+        },
+        "isReleaseConflictIPs": {
+          "type": "boolean"
+        },
+        "netNamespace": {
+          "type": "string"
+        },
+        "podName": {
+          "type": "string"
+        },
+        "podNamespace": {
+          "type": "string"
+        },
+        "podUID": {
+          "type": "string"
         }
       }
     },
@@ -681,6 +728,16 @@ func init() {
           "daemonset"
         ],
         "summary": "Delete multiple ip as a batch",
+        "parameters": [
+          {
+            "name": "ipam-batch-del-args",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IpamBatchDelArgs"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success"
@@ -973,6 +1030,43 @@ func init() {
           "items": {
             "$ref": "#/definitions/Route"
           }
+        }
+      }
+    },
+    "IpamBatchDelArgs": {
+      "description": "IPAM release IPs information",
+      "type": "object",
+      "required": [
+        "containerID",
+        "podNamespace",
+        "podName",
+        "podUID",
+        "ips"
+      ],
+      "properties": {
+        "containerID": {
+          "type": "string"
+        },
+        "ips": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IpConfig"
+          }
+        },
+        "isReleaseConflictIPs": {
+          "type": "boolean"
+        },
+        "netNamespace": {
+          "type": "string"
+        },
+        "podName": {
+          "type": "string"
+        },
+        "podNamespace": {
+          "type": "string"
+        },
+        "podUID": {
+          "type": "string"
         }
       }
     },
