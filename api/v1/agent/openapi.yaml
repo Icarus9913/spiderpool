@@ -369,13 +369,8 @@ definitions:
         type: string
       podUID:
         type: string
-      ips:
-        type: array
-        items:
-          $ref: "#/definitions/IpConfig"
     required:
       - containerID
       - podNamespace
       - podName
       - podUID
-      - ips

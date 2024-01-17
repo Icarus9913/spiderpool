@@ -487,18 +487,11 @@ func init() {
         "containerID",
         "podNamespace",
         "podName",
-        "podUID",
-        "ips"
+        "podUID"
       ],
       "properties": {
         "containerID": {
           "type": "string"
-        },
-        "ips": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/IpConfig"
-          }
         },
         "isReleaseConflictIPs": {
           "type": "boolean"
@@ -1040,18 +1033,11 @@ func init() {
         "containerID",
         "podNamespace",
         "podName",
-        "podUID",
-        "ips"
+        "podUID"
       ],
       "properties": {
         "containerID": {
           "type": "string"
-        },
-        "ips": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/IpConfig"
-          }
         },
         "isReleaseConflictIPs": {
           "type": "boolean"

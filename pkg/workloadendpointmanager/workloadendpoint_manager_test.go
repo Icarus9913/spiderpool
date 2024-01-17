@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/spidernet-io/spiderpool/api/v1/agent/models"
 	"github.com/spidernet-io/spiderpool/pkg/constant"
 	spiderpoolv2beta1 "github.com/spidernet-io/spiderpool/pkg/k8s/apis/spiderpool.spidernet.io/v2beta1"
 	spiderpooltypes "github.com/spidernet-io/spiderpool/pkg/types"
@@ -576,6 +577,121 @@ var _ = Describe("WorkloadEndpointManager", Label("workloadendpoint_manager_test
 				Expect(err).NotTo(HaveOccurred())
 				Expect(podIPAllocation.IPs).To(HaveLen(1))
 				Expect(podIPAllocation.IPs[0].NIC).To(Equal(nic))
+			})
+		})
+
+		Describe("ReleaseEndpointIPs", func() {
+			It("failed to release SpiderEndpoint IPs due to mismatch the PodUID", func() {
+				endpointT.Status.Current.UID = string(uuid.NewUUID())
+				_, err := endpointManager.ReleaseEndpointIPs(ctx, endpointT, string(uuid.NewUUID()), nil)
+				Expect(err).To(HaveOccurred())
+			})
+
+			It("no match SpiderEndpoint recorded NIC", func() {
+				podUID := string(uuid.NewUUID())
+
+				endpointT.Status.Current.UID = podUID
+				endpointT.Status.Current.IPs = []spiderpoolv2beta1.IPAllocationDetail{
+					{
+						NIC:  "eth0",
+						IPv4: pointer.String("172.168.1.2/16"),
+					},
+				}
+				ips := []*models.IPConfig{
+					&models.IPConfig{
+						Address: pointer.String("172.168.1.2"),
+						Nic:     pointer.String("eth1"),
+						Version: pointer.Int64(constant.IPv4),
+					},
+				}
+
+				ipAllocationDetails, err := endpointManager.ReleaseEndpointIPs(ctx, endpointT, podUID, ips)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ipAllocationDetails).To(HaveLen(0))
+			})
+
+			It("no match SpiderEndpoint recorded NIC IPs", func() {
+				podUID := string(uuid.NewUUID())
+
+				endpointT.Status.Current.UID = podUID
+				endpointT.Status.Current.IPs = []spiderpoolv2beta1.IPAllocationDetail{
+					{
+						NIC:  "eth0",
+						IPv6: pointer.String("fd00:172:100::201/64"),
+					},
+				}
+				ips := []*models.IPConfig{
+					&models.IPConfig{
+						Address: pointer.String("fd00:172:100::202"),
+						Nic:     pointer.String("eth0"),
+						Version: pointer.Int64(constant.IPv6),
+					},
+				}
+
+				ipAllocationDetails, err := endpointManager.ReleaseEndpointIPs(ctx, endpointT, podUID, ips)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ipAllocationDetails).To(HaveLen(0))
+			})
+
+			It("failed to update SpiderEndpoint", func() {
+				patches := gomonkey.ApplyMethodReturn(fakeClient, "Update", constant.ErrUnknown)
+				defer patches.Reset()
+
+				podUID := string(uuid.NewUUID())
+
+				endpointT.Status.Current.UID = podUID
+				endpointT.Status.Current.IPs = []spiderpoolv2beta1.IPAllocationDetail{
+					{
+						NIC:  "eth0",
+						IPv4: pointer.String("172.10.2.3/16"),
+					},
+				}
+				ips := []*models.IPConfig{
+					&models.IPConfig{
+						Address: pointer.String("172.10.2.3"),
+						Nic:     pointer.String("eth0"),
+						Version: pointer.Int64(constant.IPv4),
+					},
+				}
+
+				_, err := endpointManager.ReleaseEndpointIPs(ctx, endpointT, podUID, ips)
+				Expect(err).To(HaveOccurred())
+				Expect(err).To(MatchError(constant.ErrUnknown))
+			})
+
+			It("release SpiderEndpoint recorded IPs successfully", func() {
+				patches := gomonkey.ApplyMethodReturn(fakeClient, "Update", nil)
+				defer patches.Reset()
+
+				podUID := string(uuid.NewUUID())
+
+				endpointT.Status.Current.UID = podUID
+				endpointT.Status.Current.IPs = []spiderpoolv2beta1.IPAllocationDetail{
+					{
+						NIC:  "eth0",
+						IPv4: pointer.String("172.100.1.2/16"),
+						IPv6: pointer.String("fd00:172:100::201/64"),
+					},
+					{
+						NIC:  "net1",
+						IPv4: pointer.String("172.200.1.2/16"),
+						IPv6: pointer.String("fd00:172:200::201/64"),
+					},
+				}
+				ips := []*models.IPConfig{
+					&models.IPConfig{
+						Address: pointer.String("172.100.1.2"),
+						Nic:     pointer.String("eth0"),
+						Version: pointer.Int64(constant.IPv4),
+					},
+				}
+
+				ipAllocationDetails, err := endpointManager.ReleaseEndpointIPs(ctx, endpointT, podUID, ips)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(endpointT.Status.Current.IPs).To(HaveLen(1))
+				Expect(endpointT.Status.Current.IPs[0].NIC).To(Equal("net1"))
+				Expect(ipAllocationDetails).To(HaveLen(1))
+				Expect(ipAllocationDetails[0].NIC).To(Equal("eth0"))
 			})
 		})
 	})

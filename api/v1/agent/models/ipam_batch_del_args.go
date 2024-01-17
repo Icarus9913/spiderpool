@@ -10,7 +10,6 @@ package models
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -26,10 +25,6 @@ type IpamBatchDelArgs struct {
 	// container ID
 	// Required: true
 	ContainerID *string `json:"containerID"`
-
-	// ips
-	// Required: true
-	Ips []*IPConfig `json:"ips"`
 
 	// is release conflict i ps
 	IsReleaseConflictIPs bool `json:"isReleaseConflictIPs,omitempty"`
@@ -58,10 +53,6 @@ func (m *IpamBatchDelArgs) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateIps(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validatePodName(formats); err != nil {
 		res = append(res, err)
 	}
@@ -84,33 +75,6 @@ func (m *IpamBatchDelArgs) validateContainerID(formats strfmt.Registry) error {
 
 	if err := validate.Required("containerID", "body", m.ContainerID); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *IpamBatchDelArgs) validateIps(formats strfmt.Registry) error {
-
-	if err := validate.Required("ips", "body", m.Ips); err != nil {
-		return err
-	}
-
-	for i := 0; i < len(m.Ips); i++ {
-		if swag.IsZero(m.Ips[i]) { // not required
-			continue
-		}
-
-		if m.Ips[i] != nil {
-			if err := m.Ips[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("ips" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("ips" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
 	}
 
 	return nil
@@ -143,37 +107,8 @@ func (m *IpamBatchDelArgs) validatePodUID(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this ipam batch del args based on the context it is used
+// ContextValidate validates this ipam batch del args based on context it is used
 func (m *IpamBatchDelArgs) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateIps(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *IpamBatchDelArgs) contextValidateIps(ctx context.Context, formats strfmt.Registry) error {
-
-	for i := 0; i < len(m.Ips); i++ {
-
-		if m.Ips[i] != nil {
-			if err := m.Ips[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("ips" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("ips" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 

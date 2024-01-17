@@ -138,18 +138,8 @@ func (g *_unixDeleteAgentIpamIps) Handle(params daemonset.DeleteIpamIpsParams) m
 	)
 	ctx := logutils.IntoContext(params.HTTPRequest.Context(), log)
 
-	// log
 	if params.IpamBatchDelArgs.IsReleaseConflictIPs && !agentContext.Cfg.EnableReleaseConflictIPs {
-		result, err := params.IpamBatchDelArgs.MarshalBinary()
-		if nil != err {
-			for index := range params.IpamBatchDelArgs.Ips {
-				log.Sugar().Infof("EnableReleaseConflictIPs is disabled, skip release NIC '%s' IPv%d IP: %s",
-					*params.IpamBatchDelArgs.Ips[index].Nic, *params.IpamBatchDelArgs.Ips[index].Version, *params.IpamBatchDelArgs.Ips[index].Address)
-			}
-		} else {
-			log.Sugar().Infof("EnableReleaseConflictIPs is disabled, skip to release IPs: %s", string(result))
-		}
-
+		log.Sugar().Infof("EnableReleaseConflictIPs is disabled, skip to release IPs")
 		return daemonset.NewDeleteIpamIpsOK()
 	}
 

@@ -200,17 +200,14 @@ func CmdAdd(args *skel.CmdArgs) (err error) {
 
 	if err = errg.Wait(); err != nil {
 		logger.Error("failed to detect gateway and ip checking", zap.Error(err))
-		// should we add a switch?
 		if errors.Is(err, constant.ErrIPConflict) {
 			_, innerErr := client.Daemonset.DeleteIpamIps(daemonset.NewDeleteIpamIpsParams().WithContext(context.TODO()).WithIpamBatchDelArgs(
 				&models.IpamBatchDelArgs{
-					ContainerID:          &args.ContainerID,
-					Ips:                  ipc.ConflictIPs(),
-					IsReleaseConflictIPs: true,
-					NetNamespace:         args.Netns,
-					PodName:              (*string)(&k8sArgs.K8S_POD_NAME),
-					PodNamespace:         (*string)(&k8sArgs.K8S_POD_NAMESPACE),
-					PodUID:               (*string)(&k8sArgs.K8S_POD_UID),
+					ContainerID:  &args.ContainerID,
+					NetNamespace: args.Netns,
+					PodName:      (*string)(&k8sArgs.K8S_POD_NAME),
+					PodNamespace: (*string)(&k8sArgs.K8S_POD_NAMESPACE),
+					PodUID:       (*string)(&k8sArgs.K8S_POD_UID),
 				},
 			))
 			if nil != innerErr {

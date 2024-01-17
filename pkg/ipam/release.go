@@ -210,17 +210,6 @@ func (i *ipam) release(ctx context.Context, uid string, details []spiderpoolv2be
 func (i *ipam) ReleaseIPs(ctx context.Context, delArgs *models.IpamBatchDelArgs) error {
 	log := logutils.FromContext(ctx)
 
-	// log
-	params, err := delArgs.MarshalBinary()
-	if nil != err {
-		for index := range delArgs.Ips {
-			log.Sugar().Infof("try to release NIC '%s' IPv%d IP: %s",
-				*delArgs.Ips[index].Nic, *delArgs.Ips[index].Version, *delArgs.Ips[index].Address)
-		}
-	} else {
-		log.Sugar().Infof("try to release IPs: %s", string(params))
-	}
-
 	// find Pod UID
 	if len(*delArgs.PodUID) == 0 {
 		pod, err := i.podManager.GetPodByName(ctx, *delArgs.PodNamespace, *delArgs.PodName, constant.IgnoreCache)
@@ -240,15 +229,15 @@ func (i *ipam) ReleaseIPs(ctx context.Context, delArgs *models.IpamBatchDelArgs)
 		return fmt.Errorf("failed to get SpiderEndpoint '%s/%s', error: %v", *delArgs.PodNamespace, *delArgs.PodName, err)
 	}
 
-	ipAllocationDetails, err := i.endpointManager.ReleaseEndpointIPs(ctx, endpoint, *delArgs.PodUID, delArgs.Ips)
+	recordedIPAllocationDetails, err := i.endpointManager.ReleaseEndpointIPs(ctx, endpoint, *delArgs.PodUID)
 	if nil != err {
 		return fmt.Errorf("failed to release SpiderEndpoint IPs, error: %v", err)
 	}
 
 	// release IPPool IPs
-	if len(ipAllocationDetails) != 0 {
-		log.Sugar().Infof("try to release IPs: %v", ipAllocationDetails)
-		err := i.release(ctx, *delArgs.PodUID, ipAllocationDetails)
+	if len(recordedIPAllocationDetails) != 0 {
+		log.Sugar().Infof("try to release IPs: %v", recordedIPAllocationDetails)
+		err := i.release(ctx, *delArgs.PodUID, recordedIPAllocationDetails)
 		if nil != err {
 			return err
 		}
