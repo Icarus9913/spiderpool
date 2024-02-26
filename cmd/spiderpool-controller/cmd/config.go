@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
@@ -254,9 +255,26 @@ func ParseConfiguration() error {
 }
 
 // verify after retrieve all config
-func (cc *ControllerContext) Verify() {
-	// TODO(Icarus9913)
-	// verify existence and availability for TlsServerCertPath , TlsServerKeyPath , TlsCaPath
+func (cc *ControllerContext) Verify() error {
+	dir := path.Dir(cc.Cfg.TlsServerCertPath)
+	_, err := os.Stat(dir)
+	if nil != err {
+		return fmt.Errorf("failed to get path '%s', error: %v", dir, err)
+	}
+
+	// cert file
+	_, err = os.Stat(cc.Cfg.TlsServerCertPath)
+	if nil != err {
+		return fmt.Errorf("failed to check whether file '%s' exists, error: %v", cc.Cfg.TlsServerCertPath, err)
+	}
+
+	// key file
+	_, err = os.Stat(cc.Cfg.TlsServerKeyPath)
+	if nil != err {
+		return fmt.Errorf("failed to check whether file '%s' exists, error: %v", cc.Cfg.TlsServerKeyPath, err)
+	}
+
+	return nil
 }
 
 // LoadConfigmap reads configmap data from cli flag config-path

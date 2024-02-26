@@ -30,7 +30,10 @@ func init() {
 	if err := ParseConfiguration(); nil != err {
 		logger.Sugar().Fatalf("Failed to register ENV for spiderpool-controller: %v", err)
 	}
-	controllerContext.Verify()
+	err := controllerContext.Verify()
+	if nil != err {
+		logger.Sugar().Fatal(err.Error())
+	}
 
 	rootCmd.AddCommand(daemonCmd)
 }
