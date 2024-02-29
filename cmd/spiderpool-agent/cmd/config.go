@@ -141,7 +141,7 @@ type AgentContext struct {
 
 // BindAgentDaemonFlags bind agent cli daemon flags
 func (ac *AgentContext) BindAgentDaemonFlags(flags *pflag.FlagSet) {
-	flags.StringVar(&ac.Cfg.ConfigPath, "config-path", "/tmp/spiderpool/config-map/conf.yml", "spiderpool-agent configmap file")
+	flags.StringVar(&ac.Cfg.ConfigPath, "config-path", "", "spiderpool-agent configmap file")
 }
 
 // ParseConfiguration set the env to AgentConfiguration
@@ -189,6 +189,7 @@ func ParseConfiguration() error {
 
 // LoadConfigmap reads configmap data from cli flag config-path
 func (ac *AgentContext) LoadConfigmap() error {
+	fmt.Println("------------Agent comfigmap: ", ac.Cfg.ConfigPath)
 	configmapBytes, err := os.ReadFile(ac.Cfg.ConfigPath)
 	if nil != err {
 		return fmt.Errorf("failed to read configmap file, error: %v", err)

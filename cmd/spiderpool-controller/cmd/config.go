@@ -206,7 +206,7 @@ type ControllerContext struct {
 
 // BindControllerDaemonFlags bind controller cli daemon flags
 func (cc *ControllerContext) BindControllerDaemonFlags(flags *pflag.FlagSet) {
-	flags.StringVar(&cc.Cfg.ConfigPath, "config-path", "/tmp/spiderpool/config-map/conf.yml", "spiderpool-controller configmap file")
+	flags.StringVar(&cc.Cfg.ConfigPath, "config-path", "", "spiderpool-controller configmap file")
 	flags.StringVar(&cc.Cfg.TlsServerCertPath, "tls-server-cert", "", "file path of server cert")
 	flags.StringVar(&cc.Cfg.TlsServerKeyPath, "tls-server-key", "", "file path of server key")
 }
@@ -256,6 +256,10 @@ func ParseConfiguration() error {
 
 // verify after retrieve all config
 func (cc *ControllerContext) Verify() error {
+	fmt.Println("---------config-path: ", cc.Cfg.ConfigPath)
+	fmt.Println("---------TLS-Server-cert: ", cc.Cfg.TlsServerCertPath)
+	fmt.Println("---------TLS-Server-key: ", cc.Cfg.TlsServerKeyPath)
+
 	dir := path.Dir(cc.Cfg.TlsServerCertPath)
 	_, err := os.Stat(dir)
 	if nil != err {
@@ -265,13 +269,13 @@ func (cc *ControllerContext) Verify() error {
 	// cert file
 	_, err = os.Stat(cc.Cfg.TlsServerCertPath)
 	if nil != err {
-		return fmt.Errorf("failed to check whether file '%s' exists, error: %v", cc.Cfg.TlsServerCertPath, err)
+		return fmt.Errorf("failed to check whether cert file '%s' exists, error: %v", cc.Cfg.TlsServerCertPath, err)
 	}
 
 	// key file
 	_, err = os.Stat(cc.Cfg.TlsServerKeyPath)
 	if nil != err {
-		return fmt.Errorf("failed to check whether file '%s' exists, error: %v", cc.Cfg.TlsServerKeyPath, err)
+		return fmt.Errorf("failed to check whether cert key file '%s' exists, error: %v", cc.Cfg.TlsServerKeyPath, err)
 	}
 
 	return nil
